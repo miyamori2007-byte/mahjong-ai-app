@@ -5,14 +5,13 @@ from mahjong.hand_calculating.hand_config import HandConfig
 from mahjong.meld import Meld
 
 st.set_page_config(layout="wide")
-st.title("🀄 麻雀AI（完全版・安定版）")
+st.title("🀄 麻雀AI（完全版・最終安定）")
 
 # =========================
 # 初期化
 # =========================
 if "hand" not in st.session_state:
     st.session_state.hand = []
-
 if "melds" not in st.session_state:
     st.session_state.melds = []
 
@@ -23,7 +22,10 @@ st.sidebar.header("設定")
 
 riichi = st.sidebar.checkbox("立直")
 ippatsu = st.sidebar.checkbox("一発")
-tsumo = st.sidebar.checkbox("ツモ")
+
+# 🔥 和了方法を一元管理
+win_type = st.sidebar.radio("和了方法", ["ロン", "ツモ"])
+is_tsumo = (win_type == "ツモ")
 
 field_wind = st.sidebar.selectbox("場風", ["東","南","西","北"])
 self_wind = st.sidebar.selectbox("自風", ["東","南","西","北"])
@@ -46,7 +48,6 @@ ura_tiles = st.sidebar.multiselect("ウラドラ", tiles_all)
 st.subheader("手牌入力")
 
 cols = st.columns(9)
-
 for i, tile in enumerate(tiles_all):
     if cols[i % 9].button(tile, key=f"add_{tile}_{i}"):
         st.session_state.hand.append((tile, False))
@@ -55,9 +56,7 @@ st.write("### 手牌")
 
 for i, (tile, red) in enumerate(st.session_state.hand):
     col1, col2, col3 = st.columns([2,1,1])
-
-    label = f"{tile}🔴" if red else tile
-    col1.write(label)
+    col1.write(f"{tile}🔴" if red else tile)
 
     if tile.startswith("5"):
         if col2.button("赤", key=f"red_{i}"):
@@ -106,7 +105,6 @@ for i, m in enumerate(st.session_state.melds):
 # =========================
 def convert_tiles(tile_list):
     man = pin = sou = honors = ""
-
     for t in tile_list:
         if t.endswith("m"):
             man += t[0]
@@ -135,24 +133,14 @@ def build_melds():
 def wind_to_int(w):
     return {"東":0,"南":1,"西":2,"北":3}[w]
 
-# =========================
-# ドラ
-# =========================
 def count_dora():
     tiles = [t for t, _ in st.session_state.hand]
-
     for m in st.session_state.melds:
         tiles += m
 
-    total = 0
-
-    for d in dora_tiles:
-        total += tiles.count(d)
-
+    total = sum(tiles.count(d) for d in dora_tiles)
     if riichi:
-        for d in ura_tiles:
-            total += tiles.count(d)
-
+        total += sum(tiles.count(d) for d in ura_tiles)
     return total
 
 # =========================
@@ -166,8 +154,8 @@ if st.session_state.hand:
 if st.button("計算"):
     try:
         melds = build_melds()
-
         expected = 14 - len(melds)*3
+
         if len(st.session_state.hand) != expected:
             st.error(f"手牌は{expected}枚必要")
             st.stop()
@@ -176,7 +164,6 @@ if st.button("計算"):
         win_tile136 = convert_tiles([win_tile])[0]
 
         calc = HandCalculator()
-
         result = calc.estimate_hand_value(
             tiles=tiles136,
             win_tile=win_tile136,
@@ -184,7 +171,7 @@ if st.button("計算"):
             config=HandConfig(
                 is_riichi=riichi,
                 is_ippatsu=ippatsu,
-                is_tsumo=tsumo,
+                is_tsumo=is_tsumo,
                 player_wind=wind_to_int(self_wind),
                 round_wind=wind_to_int(field_wind)
             )
@@ -192,51 +179,45 @@ if st.button("計算"):
 
         if result.error:
             st.error(result.error)
+            st.stop()
+
+        red = sum(1 for _, r in st.session_state.hand if r)
+        dora = count_dora()
+        total_han = result.han + red + dora
+
+        cost = result.cost
+        is_dealer = (self_wind == "東")
+
+        st.write("## 結果")
+
+        # =========================
+        # ロン
+        # =========================
+        if win_type == "ロン":
+            st.write(f"ロン（{'親' if is_dealer else '子'}）: {cost['main']}")
+            if honba > 0:
+                st.write(f"本場込み: {cost['main'] + honba * 300}")
+
+        # =========================
+        # ツモ
+        # =========================
         else:
-            red = sum(1 for _, r in st.session_state.hand if r)
-            dora = count_dora()
-            total_han = result.han + red + dora
-
-            cost = result.cost
-            is_dealer = (self_wind == "東")
-
-            # 🔥 核心：ここで完全自動判定
-            is_tsumo_calc = cost['additional'] > 0
-
-            st.write("## 結果")
-
-            # =========================
-            # ロン
-            # =========================
-            if not is_tsumo_calc:
-                st.write(f"ロン（{'親' if is_dealer else '子'}）: {cost['main']}")
-
-                if honba > 0:
-                    st.write(f"本場込み: {cost['main'] + honba * 300}")
-
-            # =========================
-            # ツモ
-            # =========================
+            if cost['additional']:
+                st.write(f"ツモ（子）: {cost['main']} / {cost['additional']}")
+                total = cost['main'] + cost['additional'] * 2
             else:
-                if cost['additional'] > 0:
-                    st.write(f"ツモ（子）: {cost['main']} / {cost['additional']}")
-                    total = cost['main'] + cost['additional'] * 2
-                else:
-                    st.write(f"ツモ（親）: {cost['main']}オール")
-                    total = cost['main'] * 3
+                st.write(f"ツモ（親）: {cost['main']}オール")
+                total = cost['main'] * 3
 
-                if honba > 0:
-                    st.write(f"本場込み総取り: {total + honba * 300}")
+            if honba > 0:
+                st.write(f"本場込み総取り: {total + honba * 300}")
 
-            # =========================
-            # 情報
-            # =========================
-            st.write("翻:", total_han)
-            st.write("符:", result.fu)
+        st.write("翻:", total_han)
+        st.write("符:", result.fu)
 
-            st.write("役:")
-            for y in result.yaku:
-                st.write("-", y.name)
+        st.write("役:")
+        for y in result.yaku:
+            st.write("-", y.name)
 
     except Exception as e:
         st.error(str(e))
