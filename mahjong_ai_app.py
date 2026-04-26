@@ -5,7 +5,7 @@ from mahjong.hand_calculating.hand_config import HandConfig
 from mahjong.meld import Meld
 
 st.set_page_config(layout="wide")
-st.title("🀄 麻雀AI（完全版・最終）")
+st.title("🀄 麻雀AI（完全版・確定）")
 
 # =========================
 # 初期化
@@ -55,7 +55,6 @@ st.write("### 手牌")
 
 for i, (tile, red) in enumerate(st.session_state.hand):
     col1, col2, col3 = st.columns([2,1,1])
-
     col1.write(f"{tile}🔴" if red else tile)
 
     if tile.startswith("5"):
@@ -195,7 +194,6 @@ if st.button("計算"):
         # =========================
         if win_type == "ロン":
             total = cost['main'] + honba * 300
-
             st.write(f"ロン（{'親' if is_dealer else '子'}）: {cost['main']}")
             st.write(f"👉 最終獲得点: {total}")
 
@@ -205,32 +203,19 @@ if st.button("計算"):
         else:
             if cost['additional'] > 0:
                 # 子ツモ
+                child = cost['additional'] * 2
+                parent = cost['main'] * 2
 
-                # 点数表表示
-                parent_score = cost['main'] * 2
-                child_score = cost['additional'] * 2
-                st.write(f"ツモ（子）: {parent_score} / {child_score}")
+                st.write(f"ツモ（子）: {child} / {parent}")
 
-                # 実収支
-                base_total = cost['main'] + cost['additional'] * 2
-                total = base_total + honba * 300
-
-                st.write(f"実際の回収: {base_total}")
-                if honba > 0:
-                    st.write(f"本場込み回収: {total}")
+                total = parent + child * 2 + honba * 300
 
             else:
                 # 親ツモ
+                pay = cost['main'] * 2
+                st.write(f"ツモ（親）: {pay}オール")
 
-                score_all = cost['main'] * 2
-                st.write(f"ツモ（親）: {score_all}オール")
-
-                base_total = cost['main'] * 3
-                total = base_total + honba * 300
-
-                st.write(f"実際の回収: {base_total}")
-                if honba > 0:
-                    st.write(f"本場込み回収: {total}")
+                total = pay * 3 + honba * 300
 
             st.write(f"👉 最終獲得点: {total}")
 
