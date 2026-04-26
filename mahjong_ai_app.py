@@ -5,7 +5,7 @@ from mahjong.hand_calculating.hand_config import HandConfig
 from mahjong.meld import Meld
 
 st.set_page_config(layout="wide")
-st.title("🀄 麻雀AI（完全版・最終）")
+st.title("🀄 麻雀AI（完全版・安定版）")
 
 # =========================
 # 初期化
@@ -197,38 +197,36 @@ if st.button("計算"):
             dora = count_dora()
             total_han = result.han + red + dora
 
-            st.write("## 結果")
-
             cost = result.cost
             is_dealer = (self_wind == "東")
+
+            # 🔥 核心：ここで完全自動判定
+            is_tsumo_calc = cost['additional'] > 0
+
+            st.write("## 結果")
 
             # =========================
             # ロン
             # =========================
-            if not tsumo:
-                if is_dealer:
-                    st.write(f"ロン（親）: {cost['main']}")
-                else:
-                    st.write(f"ロン（子）: {cost['main']}")
-
-                total = cost['main'] + honba * 300
+            if not is_tsumo_calc:
+                st.write(f"ロン（{'親' if is_dealer else '子'}）: {cost['main']}")
 
                 if honba > 0:
-                    st.write(f"本場込み: {total}")
+                    st.write(f"本場込み: {cost['main'] + honba * 300}")
 
             # =========================
             # ツモ
             # =========================
             else:
-                if cost['additional']:
+                if cost['additional'] > 0:
                     st.write(f"ツモ（子）: {cost['main']} / {cost['additional']}")
-                    total = cost['main'] + cost['additional'] * 2 + honba * 300
+                    total = cost['main'] + cost['additional'] * 2
                 else:
                     st.write(f"ツモ（親）: {cost['main']}オール")
-                    total = cost['main'] * 3 + honba * 300
+                    total = cost['main'] * 3
 
                 if honba > 0:
-                    st.write(f"本場込み総取り: {total}")
+                    st.write(f"本場込み総取り: {total + honba * 300}")
 
             # =========================
             # 情報
