@@ -5,7 +5,7 @@ from mahjong.hand_calculating.hand_config import HandConfig
 from mahjong.meld import Meld
 
 st.set_page_config(layout="wide")
-st.title("🀄 麻雀AI（完全版：点数完全対応）")
+st.title("🀄 麻雀AI（完全版・最終）")
 
 # =========================
 # 初期化
@@ -195,59 +195,50 @@ if st.button("計算"):
         else:
             red = sum(1 for _, r in st.session_state.hand if r)
             dora = count_dora()
-
             total_han = result.han + red + dora
 
             st.write("## 結果")
 
-            # ===== 点数（完全版）=====
-cost = result.cost
+            cost = result.cost
+            is_dealer = (self_wind == "東")
 
-st.write("## 結果")
+            # =========================
+            # ロン
+            # =========================
+            if not tsumo:
+                if is_dealer:
+                    st.write(f"ロン（親）: {cost['main']}")
+                else:
+                    st.write(f"ロン（子）: {cost['main']}")
 
-# 親判定
-is_dealer = (self_wind == "東")
+                total = cost['main'] + honba * 300
 
-# =========================
-# ロン
-# =========================
-if not tsumo:
-    if is_dealer:
-        st.write(f"ロン（親）: {cost['main']}")
-        total = cost['main'] + honba * 300
-    else:
-        st.write(f"ロン（子）: {cost['main']}")
-        total = cost['main'] + honba * 300
+                if honba > 0:
+                    st.write(f"本場込み: {total}")
 
-    if honba > 0:
-        st.write(f"本場込み: {total}")
+            # =========================
+            # ツモ
+            # =========================
+            else:
+                if cost['additional']:
+                    st.write(f"ツモ（子）: {cost['main']} / {cost['additional']}")
+                    total = cost['main'] + cost['additional'] * 2 + honba * 300
+                else:
+                    st.write(f"ツモ（親）: {cost['main']}オール")
+                    total = cost['main'] * 3 + honba * 300
 
-# =========================
-# ツモ
-# =========================
-else:
-    # 子ツモ（支払いが分かれる）
-    if cost['additional']:
-        st.write(f"ツモ（子）: {cost['main']} / {cost['additional']}")
+                if honba > 0:
+                    st.write(f"本場込み総取り: {total}")
 
-        # 合計得点（受け取り）
-        total = cost['main'] + cost['additional'] * 2 + honba * 300
+            # =========================
+            # 情報
+            # =========================
+            st.write("翻:", total_han)
+            st.write("符:", result.fu)
 
-    # 親ツモ（オール）
-    else:
-        st.write(f"ツモ（親）: {cost['main']}オール")
+            st.write("役:")
+            for y in result.yaku:
+                st.write("-", y.name)
 
-        total = cost['main'] * 3 + honba * 300
-
-    if honba > 0:
-        st.write(f"本場込み総取り: {total}")
-
-# =========================
-# 情報表示
-# =========================
-st.write("翻:", total_han)
-st.write("符:", result.fu)
-
-st.write("役:")
-for y in result.yaku:
-    st.write("-", y.name)
+    except Exception as e:
+        st.error(str(e))
