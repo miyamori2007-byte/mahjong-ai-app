@@ -1,0 +1,15 @@
+streamlit
+ultralytics
+pillow
+opencv-python-headless
+
+# .streamlit自動生成
+%%writefile .streamlit/config.toml
+[theme]
+primaryColor = "#FF6B6B"
+
+# ファイル一覧確認＋zip化
+import os
+print("📁 全ファイル:", os.listdir('.'))
+!zip -r mahjong_ai.zip mahjong_ai_app.py requirements.txt .streamlit/
+print("✅ 公開用ZIP作成完了！")
