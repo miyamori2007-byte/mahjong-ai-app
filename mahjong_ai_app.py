@@ -12,11 +12,14 @@ st.set_page_config(layout="wide")
 st.title("🀄 麻雀AI（画像認識 × 点数計算）")
 
 # =========================
-# YOLOモデル読み込み
+# YOLOモデル読み込み（安全化）
 # =========================
 @st.cache_resource
 def load_model():
-    return YOLO("mahjong_yolo.pt")  # ←ここにモデル置く
+    try:
+        return YOLO("mahjong_yolo.pt")
+    except:
+        return None
 
 model = load_model()
 
@@ -39,7 +42,7 @@ red_dora = st.sidebar.number_input("赤ドラ", 0, 4, 0)
 honba = st.sidebar.number_input("本場", 0, 20, 0)
 
 # =========================
-# ラベル → 牌変換
+# ラベル → 牌
 # =========================
 label_map = {
     0:"1m",1:"2m",2:"3m",3:"4m",4:"5m",5:"6m",6:"7m",7:"8m",8:"9m",
@@ -49,31 +52,56 @@ label_map = {
 }
 
 # =========================
-# YOLO推論
+# YOLO検出（安全化）
 # =========================
 def detect_tiles(image):
-    results = model(image)[0]
+    if model is None:
+        return []
+
+    img_np = np.array(image)
+
+    results = model(img_np)[0]
 
     tiles = []
 
     for box in results.boxes:
         cls = int(box.cls[0])
-        x = box.xyxy[0][0].item()  # 左端x
+        x = float(box.xyxy[0][0])
 
-        tiles.append((x, label_map.get(cls, "?")))
+        if cls in label_map:
+            tiles.append((x, label_map[cls]))
 
-    # 左から順に並べる
+    # 左→右ソート
     tiles.sort(key=lambda x: x[0])
 
     return [t[1] for t in tiles]
 
 # =========================
-# 牌→mahjong形式
+# 牌文字列 → リスト（バグ修正）
 # =========================
-def convert_tiles(tiles):
+def parse_tiles_str(s):
+    tiles = []
+    num = ""
+
+    for c in s:
+        if c.isdigit():
+            num += c
+        elif c in "mps":
+            for n in num:
+                tiles.append(n + c)
+            num = ""
+        elif c in ["東","南","西","北","白","發","中"]:
+            tiles.append(c)
+
+    return tiles
+
+# =========================
+# 牌 → mahjong形式
+# =========================
+def convert_tiles(tile_list):
     man = pin = sou = honors = ""
 
-    for t in tiles:
+    for t in tile_list:
         if t.endswith("m"):
             man += t[0]
         elif t.endswith("p"):
@@ -98,37 +126,29 @@ def wind_to_int(w):
     return {"東":0,"南":1,"西":2,"北":3}[w]
 
 # =========================
-# メイン処理
+# メイン
 # =========================
 if img_file:
 
     img = Image.open(img_file)
     st.image(img, caption="入力画像", use_column_width=True)
 
-    # YOLO認識
-    tiles = detect_tiles(img)
+    detected = detect_tiles(img)
 
-    st.subheader("認識結果（修正可）")
-
-    # 手動修正UI（重要）
-    tiles_str = st.text_input("牌列", "".join(tiles))
+    # ===== 修正可能UI（最重要）=====
+    tiles_str = st.text_input(
+        "牌列（修正可）",
+        "".join(detected) if detected else "123m123p123s東東東白白"
+    )
 
     if st.button("点数計算"):
 
         try:
-            tile_list = []
-            num = ""
+            tile_list = parse_tiles_str(tiles_str)
 
-            # 文字列→リスト変換
-            for c in tiles_str:
-                if c.isdigit():
-                    num += c
-                else:
-                    for n in num:
-                        tile_list.append(n + c)
-                    num = ""
-                    if c in ["東","南","西","北","白","發","中"]:
-                        tile_list.append(c)
+            if len(tile_list) not in [14]:
+                st.warning("牌数は14枚にしてください")
+                st.stop()
 
             tiles136 = convert_tiles(tile_list)
 
@@ -154,11 +174,13 @@ if img_file:
                 han = result.han + dora + red_dora
                 fu = result.fu
 
+                # 数え役満なし
                 if han >= 13:
                     han = 12
 
                 base = fu * (2 ** (han + 2))
 
+                # 切り上げ満貫
                 if base >= 1920:
                     base = 2000
 
