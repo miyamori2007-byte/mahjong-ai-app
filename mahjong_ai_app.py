@@ -1,26 +1,35 @@
 import streamlit as st
+import numpy as np
+import cv2
+from PIL import Image
+
+from ultralytics import YOLO
 from mahjong.hand_calculating.hand import HandCalculator
 from mahjong.tile import TilesConverter
 from mahjong.hand_calculating.hand_config import HandConfig
 
 st.set_page_config(layout="wide")
-st.title("🀄 麻雀点数計算AI（mahjongエンジン）")
+st.title("🀄 麻雀AI（画像認識 × 点数計算）")
+
+# =========================
+# YOLOモデル読み込み
+# =========================
+@st.cache_resource
+def load_model():
+    return YOLO("mahjong_yolo.pt")  # ←ここにモデル置く
+
+model = load_model()
 
 # =========================
 # 入力UI
 # =========================
 st.sidebar.header("入力")
 
-tiles_str = st.sidebar.text_input(
-    "手牌（例: 123m123p123s東東東白白）",
-    "123m123p123s東東東白白"
-)
+img_file = st.file_uploader("画像アップロード")
 
-win_type = st.sidebar.radio("和了", ["ロン", "ツモ"])
 riichi = st.sidebar.checkbox("立直")
 ippatsu = st.sidebar.checkbox("一発")
-rinshan = st.sidebar.checkbox("嶺上開花")
-haitei = st.sidebar.checkbox("海底/河底")
+tsumo = st.sidebar.checkbox("ツモ")
 
 field_wind = st.sidebar.selectbox("場風", ["東", "南", "西", "北"])
 self_wind = st.sidebar.selectbox("自風", ["東", "南", "西", "北"])
@@ -30,22 +39,49 @@ red_dora = st.sidebar.number_input("赤ドラ", 0, 4, 0)
 honba = st.sidebar.number_input("本場", 0, 20, 0)
 
 # =========================
-# 牌変換
+# ラベル → 牌変換
 # =========================
-def convert_tiles(s):
-    man = pin = sou = honors = ""
-    num = ""
+label_map = {
+    0:"1m",1:"2m",2:"3m",3:"4m",4:"5m",5:"6m",6:"7m",7:"8m",8:"9m",
+    9:"1p",10:"2p",11:"3p",12:"4p",13:"5p",14:"6p",15:"7p",16:"8p",17:"9p",
+    18:"1s",19:"2s",20:"3s",21:"4s",22:"5s",23:"6s",24:"7s",25:"8s",26:"9s",
+    27:"東",28:"南",29:"西",30:"北",31:"白",32:"發",33:"中"
+}
 
-    for c in s:
-        if c.isdigit():
-            num += c
-        elif c in "mps":
-            if c == "m": man += num
-            if c == "p": pin += num
-            if c == "s": sou += num
-            num = ""
+# =========================
+# YOLO推論
+# =========================
+def detect_tiles(image):
+    results = model(image)[0]
+
+    tiles = []
+
+    for box in results.boxes:
+        cls = int(box.cls[0])
+        x = box.xyxy[0][0].item()  # 左端x
+
+        tiles.append((x, label_map.get(cls, "?")))
+
+    # 左から順に並べる
+    tiles.sort(key=lambda x: x[0])
+
+    return [t[1] for t in tiles]
+
+# =========================
+# 牌→mahjong形式
+# =========================
+def convert_tiles(tiles):
+    man = pin = sou = honors = ""
+
+    for t in tiles:
+        if t.endswith("m"):
+            man += t[0]
+        elif t.endswith("p"):
+            pin += t[0]
+        elif t.endswith("s"):
+            sou += t[0]
         else:
-            honors += convert_honor(c)
+            honors += convert_honor(t)
 
     return TilesConverter.string_to_136_array(
         man=man, pin=pin, sou=sou, honors=honors
@@ -58,73 +94,85 @@ def convert_honor(c):
     }
     return table.get(c,"")
 
-# =========================
-# 風変換
-# =========================
 def wind_to_int(w):
-    table = {"東":0, "南":1, "西":2, "北":3}
-    return table[w]
+    return {"東":0,"南":1,"西":2,"北":3}[w]
 
 # =========================
-# 実行
+# メイン処理
 # =========================
-if st.button("計算"):
+if img_file:
 
-    try:
-        tiles = convert_tiles(tiles_str)
+    img = Image.open(img_file)
+    st.image(img, caption="入力画像", use_column_width=True)
 
-        calculator = HandCalculator()
+    # YOLO認識
+    tiles = detect_tiles(img)
 
-        config = HandConfig(
-            is_riichi=riichi,
-            is_ippatsu=ippatsu,
-            is_tsumo=(win_type == "ツモ"),
-            is_rinshan=rinshan,
-            is_haitei=haitei,
-            player_wind=wind_to_int(self_wind),
-            round_wind=wind_to_int(field_wind)
-        )
+    st.subheader("認識結果（修正可）")
 
-        result = calculator.estimate_hand_value(
-            tiles=tiles,
-            win_tile=tiles[-1],
-            config=config
-        )
+    # 手動修正UI（重要）
+    tiles_str = st.text_input("牌列", "".join(tiles))
 
-        st.subheader("結果")
+    if st.button("点数計算"):
 
-        if result.error:
-            st.error(result.error)
-        else:
-            han = result.han + dora + red_dora
-            fu = result.fu
+        try:
+            tile_list = []
+            num = ""
 
-            # 数え役満なし
-            if han >= 13:
-                han = 12
+            # 文字列→リスト変換
+            for c in tiles_str:
+                if c.isdigit():
+                    num += c
+                else:
+                    for n in num:
+                        tile_list.append(n + c)
+                    num = ""
+                    if c in ["東","南","西","北","白","發","中"]:
+                        tile_list.append(c)
 
-            # 基本点
-            base = fu * (2 ** (han + 2))
+            tiles136 = convert_tiles(tile_list)
 
-            # 切り上げ満貫
-            if base >= 1920:
-                base = 2000
+            calculator = HandCalculator()
 
-            # 点数
-            if win_type == "ロン":
-                score = base * 4
+            config = HandConfig(
+                is_riichi=riichi,
+                is_ippatsu=ippatsu,
+                is_tsumo=tsumo,
+                player_wind=wind_to_int(self_wind),
+                round_wind=wind_to_int(field_wind)
+            )
+
+            result = calculator.estimate_hand_value(
+                tiles=tiles136,
+                win_tile=tiles136[-1],
+                config=config
+            )
+
+            if result.error:
+                st.error(result.error)
             else:
-                score = base * 2
+                han = result.han + dora + red_dora
+                fu = result.fu
 
-            score += honba * 300
+                if han >= 13:
+                    han = 12
 
-            st.write(f"翻: {han}")
-            st.write(f"符: {fu}")
-            st.write(f"点数: {int(score)}")
+                base = fu * (2 ** (han + 2))
 
-            st.write("役:")
-            for y in result.yaku:
-                st.write("-", y.name)
+                if base >= 1920:
+                    base = 2000
 
-    except Exception as e:
-        st.error(str(e))
+                score = base * (4 if not tsumo else 2)
+                score += honba * 300
+
+                st.subheader("結果")
+                st.write(f"点数: {int(score)}")
+                st.write(f"翻: {han}")
+                st.write(f"符: {fu}")
+
+                st.write("役:")
+                for y in result.yaku:
+                    st.write("-", y.name)
+
+        except Exception as e:
+            st.error(str(e))
