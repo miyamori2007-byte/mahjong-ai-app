@@ -6,12 +6,13 @@ from ultralytics import YOLO
 from mahjong.hand_calculating.hand import HandCalculator
 from mahjong.tile import TilesConverter
 from mahjong.hand_calculating.hand_config import HandConfig
+from mahjong.meld import Meld
 
 st.set_page_config(layout="wide")
-st.title("🀄 麻雀AI（画像認識 × 点数計算 完全版）")
+st.title("🀄 麻雀AI（画像認識 × 鳴き対応 完全版）")
 
 # =========================
-# YOLOモデル読み込み
+# YOLOモデル
 # =========================
 @st.cache_resource
 def load_model():
@@ -40,8 +41,12 @@ dora = st.sidebar.number_input("ドラ", 0, 10, 0)
 red_dora = st.sidebar.number_input("赤ドラ", 0, 4, 0)
 honba = st.sidebar.number_input("本場", 0, 20, 0)
 
+# 副露入力
+st.sidebar.subheader("鳴き（副露）")
+melds_input = st.sidebar.text_area("例: 555p,123s,7777m", "")
+
 # =========================
-# ラベル → 牌
+# ラベル
 # =========================
 label_map = {
     0:"1m",1:"2m",2:"3m",3:"4m",4:"5m",5:"6m",6:"7m",7:"8m",8:"9m",
@@ -61,25 +66,21 @@ def detect_tiles(image):
     results = model(img_np)[0]
 
     tiles = []
-
     for box in results.boxes:
         cls = int(box.cls[0])
         x = float(box.xyxy[0][0])
-
         if cls in label_map:
             tiles.append((x, label_map[cls]))
 
     tiles.sort(key=lambda x: x[0])
-
     return [t[1] for t in tiles]
 
 # =========================
-# 文字列 → 手牌リスト
+# パース
 # =========================
 def parse_tiles_str(s):
     tiles = []
     num = ""
-
     for c in s:
         if c.isdigit():
             num += c
@@ -89,15 +90,13 @@ def parse_tiles_str(s):
             num = ""
         elif c in ["東","南","西","北","白","發","中"]:
             tiles.append(c)
-
     return tiles
 
 # =========================
-# 牌 → mahjong形式
+# 変換
 # =========================
 def convert_tiles(tile_list):
     man = pin = sou = honors = ""
-
     for t in tile_list:
         if t.endswith("m"):
             man += t[0]
@@ -113,17 +112,45 @@ def convert_tiles(tile_list):
     )
 
 def convert_honor(c):
-    table = {
-        "東":"1","南":"2","西":"3","北":"4",
-        "白":"5","發":"6","中":"7"
-    }
-    return table.get(c,"")
+    return {"東":"1","南":"2","西":"3","北":"4","白":"5","發":"6","中":"7"}.get(c,"")
 
 def wind_to_int(w):
     return {"東":0,"南":1,"西":2,"北":3}[w]
 
 # =========================
-# メイン処理
+# 副露パース
+# =========================
+def parse_melds(melds_str):
+    melds = []
+    if not melds_str.strip():
+        return melds
+
+    raw = melds_str.split(",")
+
+    for m in raw:
+        m = m.strip()
+        suit = m[-1]
+        nums = m[:-1]
+
+        tiles = [n + suit for n in nums]
+        tiles136 = convert_tiles(tiles)
+
+        if len(tiles) == 3:
+            if nums[0] == nums[1]:
+                meld_type = Meld.PON
+            else:
+                meld_type = Meld.CHI
+        elif len(tiles) == 4:
+            meld_type = Meld.KAN
+        else:
+            continue
+
+        melds.append(Meld(meld_type, tiles136))
+
+    return melds
+
+# =========================
+# メイン
 # =========================
 if img_file:
 
@@ -133,32 +160,29 @@ if img_file:
     detected = detect_tiles(img)
 
     if len(detected) == 0:
-        st.warning("牌が認識できませんでした。手動で入力してください。")
+        st.warning("牌が認識できませんでした。手動入力してください。")
 
-    # 修正UI
     tiles_str = st.text_input(
         "牌列（修正可）",
         "".join(detected) if detected else "123m123p123s東東東白白"
     )
 
     tile_list = parse_tiles_str(tiles_str)
+    melds = parse_melds(melds_input)
 
-    # ★ 和了牌選択（最重要修正）
-    if len(tile_list) > 0:
-        win_tile_input = st.selectbox("和了牌", tile_list)
-    else:
-        win_tile_input = None
+    # 和了牌
+    win_tile_input = st.selectbox("和了牌", tile_list) if tile_list else None
 
     if st.button("点数計算"):
 
         try:
-            if len(tile_list) != 14:
-                st.error("牌数は14枚にしてください")
+            expected_tiles = 14 - (len(melds) * 3)
+
+            if len(tile_list) != expected_tiles:
+                st.error(f"手牌は {expected_tiles} 枚にしてください")
                 st.stop()
 
             tiles136 = convert_tiles(tile_list)
-
-            # ★ 和了牌を正しく指定
             win_tile = convert_tiles([win_tile_input])[0]
 
             calculator = HandCalculator()
@@ -174,6 +198,7 @@ if img_file:
             result = calculator.estimate_hand_value(
                 tiles=tiles136,
                 win_tile=win_tile,
+                melds=melds,
                 config=config
             )
 
@@ -183,13 +208,10 @@ if img_file:
                 han = result.han + dora + red_dora
                 fu = result.fu
 
-                # 数え役満なし
                 if han >= 13:
                     han = 12
 
                 base = fu * (2 ** (han + 2))
-
-                # 切り上げ満貫
                 if base >= 1920:
                     base = 2000
 
