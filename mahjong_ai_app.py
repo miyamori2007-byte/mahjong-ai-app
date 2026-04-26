@@ -1,8 +1,10 @@
 import streamlit as st
-import math
+from mahjong.hand_calculating.hand import HandCalculator
+from mahjong.tile import TilesConverter
+from mahjong.hand_calculating.hand_config import HandConfig
 
 st.set_page_config(layout="wide")
-st.title("🀄 麻雀点数計算AI（プロルール準拠）")
+st.title("🀄 麻雀点数計算AI（mahjongエンジン）")
 
 # =========================
 # 入力UI
@@ -28,113 +30,101 @@ red_dora = st.sidebar.number_input("赤ドラ", 0, 4, 0)
 honba = st.sidebar.number_input("本場", 0, 20, 0)
 
 # =========================
-# 手牌変換
+# 牌変換
 # =========================
-def parse_tiles(s):
-    result = []
+def convert_tiles(s):
+    man = pin = sou = honors = ""
     num = ""
+
     for c in s:
         if c.isdigit():
             num += c
-        else:
-            for n in num:
-                result.append(n + c)
+        elif c in "mps":
+            if c == "m": man += num
+            if c == "p": pin += num
+            if c == "s": sou += num
             num = ""
-            if c in ["東","南","西","北","白","發","中"]:
-                result.append(c)
-    return result
+        else:
+            honors += convert_honor(c)
 
-tiles = parse_tiles(tiles_str)
+    return TilesConverter.string_to_136_array(
+        man=man, pin=pin, sou=sou, honors=honors
+    )
 
-# =========================
-# 簡易役判定
-# =========================
-def calculate_han(tiles):
-    han = 0
-    yaku = []
-
-    # 立直
-    if riichi:
-        han += 1
-        yaku.append("立直")
-
-    if ippatsu:
-        han += 1
-        yaku.append("一発")
-
-    if win_type == "ツモ":
-        han += 1
-        yaku.append("門前清自摸和")
-
-    # タンヤオ（簡易）
-    if all(t[0] not in "19" and t not in ["東","南","西","北","白","發","中"] for t in tiles):
-        han += 1
-        yaku.append("断么九")
-
-    # 役牌（超簡易）
-    for honor in ["白","發","中", field_wind, self_wind]:
-        if tiles.count(honor) >= 3:
-            han += 1
-            yaku.append(f"役牌({honor})")
-
-    # ドラ
-    han += dora + red_dora
-
-    return han, yaku
+def convert_honor(c):
+    table = {
+        "東":"1","南":"2","西":"3","北":"4",
+        "白":"5","發":"6","中":"7"
+    }
+    return table.get(c,"")
 
 # =========================
-# 符計算（簡易）
+# 風変換
 # =========================
-def calculate_fu():
-    fu = 20
-
-    if win_type == "ロン" and riichi:
-        fu += 10
-
-    if win_type == "ツモ":
-        fu += 2
-
-    # 雀頭（連風牌）
-    fu += 2  # 仮で加算
-
-    return int(math.ceil(fu / 10.0) * 10)
-
-# =========================
-# 点数計算
-# =========================
-def calculate_score(fu, han):
-    # 数え役満なし
-    if han >= 13:
-        han = 12
-
-    base = fu * (2 ** (han + 2))
-
-    # 切り上げ満貫
-    if base >= 1920:
-        base = 2000
-
-    if win_type == "ロン":
-        score = base * 4
-    else:
-        score = base * 2  # 簡易
-
-    score += honba * 300
-
-    return int(score)
+def wind_to_int(w):
+    table = {"東":0, "南":1, "西":2, "北":3}
+    return table[w]
 
 # =========================
 # 実行
 # =========================
 if st.button("計算"):
-    han, yaku = calculate_han(tiles)
-    fu = calculate_fu()
-    score = calculate_score(fu, han)
 
-    st.subheader("結果")
-    st.write(f"翻数: {han}")
-    st.write(f"符: {fu}")
-    st.write(f"点数: {score}")
+    try:
+        tiles = convert_tiles(tiles_str)
 
-    st.write("役:")
-    for y in yaku:
-        st.write("-", y)
+        calculator = HandCalculator()
+
+        config = HandConfig(
+            is_riichi=riichi,
+            is_ippatsu=ippatsu,
+            is_tsumo=(win_type == "ツモ"),
+            is_rinshan=rinshan,
+            is_haitei=haitei,
+            player_wind=wind_to_int(self_wind),
+            round_wind=wind_to_int(field_wind)
+        )
+
+        result = calculator.estimate_hand_value(
+            tiles=tiles,
+            win_tile=tiles[-1],
+            config=config
+        )
+
+        st.subheader("結果")
+
+        if result.error:
+            st.error(result.error)
+        else:
+            han = result.han + dora + red_dora
+            fu = result.fu
+
+            # 数え役満なし
+            if han >= 13:
+                han = 12
+
+            # 基本点
+            base = fu * (2 ** (han + 2))
+
+            # 切り上げ満貫
+            if base >= 1920:
+                base = 2000
+
+            # 点数
+            if win_type == "ロン":
+                score = base * 4
+            else:
+                score = base * 2
+
+            score += honba * 300
+
+            st.write(f"翻: {han}")
+            st.write(f"符: {fu}")
+            st.write(f"点数: {int(score)}")
+
+            st.write("役:")
+            for y in result.yaku:
+                st.write("-", y.name)
+
+    except Exception as e:
+        st.error(str(e))
