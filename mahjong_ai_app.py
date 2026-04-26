@@ -1,102 +1,115 @@
 import streamlit as st
-import numpy as np
-from PIL import Image
-
-from ultralytics import YOLO
 from mahjong.hand_calculating.hand import HandCalculator
 from mahjong.tile import TilesConverter
 from mahjong.hand_calculating.hand_config import HandConfig
 from mahjong.meld import Meld
 
 st.set_page_config(layout="wide")
-st.title("🀄 麻雀AI（画像認識 × 鳴き対応 完全版）")
+st.title("🀄 麻雀AI（完全版：UI＋鳴き＋ドラ＋赤ドラ）")
 
 # =========================
-# YOLOモデル
+# 初期化
 # =========================
-@st.cache_resource
-def load_model():
-    try:
-        return YOLO("mahjong_yolo.pt")
-    except:
-        return None
+if "hand" not in st.session_state:
+    st.session_state.hand = []  # [(tile, is_red)]
 
-model = load_model()
+if "melds" not in st.session_state:
+    st.session_state.melds = []
 
 # =========================
-# 入力UI
+# 基本設定
 # =========================
-st.sidebar.header("入力")
-
-img_file = st.file_uploader("画像アップロード")
+st.sidebar.header("設定")
 
 riichi = st.sidebar.checkbox("立直")
 ippatsu = st.sidebar.checkbox("一発")
 tsumo = st.sidebar.checkbox("ツモ")
 
-field_wind = st.sidebar.selectbox("場風", ["東", "南", "西", "北"])
-self_wind = st.sidebar.selectbox("自風", ["東", "南", "西", "北"])
+field_wind = st.sidebar.selectbox("場風", ["東","南","西","北"])
+self_wind = st.sidebar.selectbox("自風", ["東","南","西","北"])
 
-dora = st.sidebar.number_input("ドラ", 0, 10, 0)
-red_dora = st.sidebar.number_input("赤ドラ", 0, 4, 0)
 honba = st.sidebar.number_input("本場", 0, 20, 0)
 
-# 副露入力
-st.sidebar.subheader("鳴き（副露）")
-melds_input = st.sidebar.text_area("例: 555p,123s,7777m", "")
+# ドラ（簡易）
+tiles_all = [
+    *[f"{i}m" for i in range(1,10)],
+    *[f"{i}p" for i in range(1,10)],
+    *[f"{i}s" for i in range(1,10)],
+    "東","南","西","北","白","發","中"
+]
+
+dora_tiles = st.sidebar.multiselect("ドラ", tiles_all)
+ura_tiles = st.sidebar.multiselect("ウラドラ", tiles_all)
 
 # =========================
-# ラベル
+# 手牌入力
 # =========================
-label_map = {
-    0:"1m",1:"2m",2:"3m",3:"4m",4:"5m",5:"6m",6:"7m",7:"8m",8:"9m",
-    9:"1p",10:"2p",11:"3p",12:"4p",13:"5p",14:"6p",15:"7p",16:"8p",17:"9p",
-    18:"1s",19:"2s",20:"3s",21:"4s",22:"5s",23:"6s",24:"7s",25:"8s",26:"9s",
-    27:"東",28:"南",29:"西",30:"北",31:"白",32:"發",33:"中"
-}
+st.subheader("手牌入力")
+
+cols = st.columns(9)
+
+for i, tile in enumerate(tiles_all):
+    if cols[i % 9].button(tile, key=f"add_{tile}_{i}"):
+        st.session_state.hand.append((tile, False))
+
+# 表示＋赤ドラ
+st.write("### 手牌")
+
+for i, (tile, red) in enumerate(st.session_state.hand):
+    col1, col2, col3 = st.columns([2,1,1])
+
+    label = f"{tile}🔴" if red else tile
+    col1.write(label)
+
+    if tile[0] == "5":
+        if col2.button("赤", key=f"red_{i}"):
+            st.session_state.hand[i] = (tile, not red)
+            st.rerun()
+
+    if col3.button("削除", key=f"del_{i}"):
+        st.session_state.hand.pop(i)
+        st.rerun()
+
+if st.button("全削除"):
+    st.session_state.hand = []
 
 # =========================
-# YOLO検出
+# 鳴き入力
 # =========================
-def detect_tiles(image):
-    if model is None:
-        return []
+st.sidebar.subheader("鳴き")
 
-    img_np = np.array(image)
-    results = model(img_np)[0]
+pon = st.sidebar.selectbox("ポン", tiles_all)
+if st.sidebar.button("ポン追加"):
+    st.session_state.melds.append([pon]*3)
 
-    tiles = []
-    for box in results.boxes:
-        cls = int(box.cls[0])
-        x = float(box.xyxy[0][0])
-        if cls in label_map:
-            tiles.append((x, label_map[cls]))
+kan = st.sidebar.selectbox("カン", tiles_all)
+if st.sidebar.button("カン追加"):
+    st.session_state.melds.append([kan]*4)
 
-    tiles.sort(key=lambda x: x[0])
-    return [t[1] for t in tiles]
+chi_base = st.sidebar.selectbox("チー開始", ["1","2","3","4","5","6","7"])
+chi_suit = st.sidebar.selectbox("種別", ["m","p","s"])
 
-# =========================
-# パース
-# =========================
-def parse_tiles_str(s):
-    tiles = []
-    num = ""
-    for c in s:
-        if c.isdigit():
-            num += c
-        elif c in "mps":
-            for n in num:
-                tiles.append(n + c)
-            num = ""
-        elif c in ["東","南","西","北","白","發","中"]:
-            tiles.append(c)
-    return tiles
+if st.sidebar.button("チー追加"):
+    n = int(chi_base)
+    st.session_state.melds.append(
+        [f"{n}{chi_suit}", f"{n+1}{chi_suit}", f"{n+2}{chi_suit}"]
+    )
+
+# 副露表示
+st.sidebar.write("副露:")
+for i, m in enumerate(st.session_state.melds):
+    col1, col2 = st.sidebar.columns([3,1])
+    col1.write(m)
+    if col2.button("削除", key=f"meld_del_{i}"):
+        st.session_state.melds.pop(i)
+        st.rerun()
 
 # =========================
 # 変換
 # =========================
 def convert_tiles(tile_list):
     man = pin = sou = honors = ""
+
     for t in tile_list:
         if t.endswith("m"):
             man += t[0]
@@ -105,127 +118,108 @@ def convert_tiles(tile_list):
         elif t.endswith("s"):
             sou += t[0]
         else:
-            honors += convert_honor(t)
+            honors += {"東":"1","南":"2","西":"3","北":"4","白":"5","發":"6","中":"7"}[t]
 
     return TilesConverter.string_to_136_array(
         man=man, pin=pin, sou=sou, honors=honors
     )
 
-def convert_honor(c):
-    return {"東":"1","南":"2","西":"3","北":"4","白":"5","發":"6","中":"7"}.get(c,"")
+def build_melds():
+    melds = []
+    for m in st.session_state.melds:
+        tiles136 = convert_tiles(m)
+        if len(m)==3:
+            meld_type = Meld.PON if m[0]==m[1] else Meld.CHI
+        else:
+            meld_type = Meld.KAN
+        melds.append(Meld(meld_type, tiles136))
+    return melds
 
 def wind_to_int(w):
     return {"東":0,"南":1,"西":2,"北":3}[w]
 
 # =========================
-# 副露パース
+# ドラ計算
 # =========================
-def parse_melds(melds_str):
-    melds = []
-    if not melds_str.strip():
-        return melds
+def count_dora():
+    tiles = [t for t, _ in st.session_state.hand]
 
-    raw = melds_str.split(",")
+    for m in st.session_state.melds:
+        tiles += m
 
-    for m in raw:
-        m = m.strip()
-        suit = m[-1]
-        nums = m[:-1]
+    total = 0
 
-        tiles = [n + suit for n in nums]
-        tiles136 = convert_tiles(tiles)
+    for d in dora_tiles:
+        total += tiles.count(d)
 
-        if len(tiles) == 3:
-            if nums[0] == nums[1]:
-                meld_type = Meld.PON
-            else:
-                meld_type = Meld.CHI
-        elif len(tiles) == 4:
-            meld_type = Meld.KAN
-        else:
-            continue
+    if riichi:
+        for d in ura_tiles:
+            total += tiles.count(d)
 
-        melds.append(Meld(meld_type, tiles136))
-
-    return melds
+    return total
 
 # =========================
-# メイン
+# 計算
 # =========================
-if img_file:
+st.subheader("点数計算")
 
-    img = Image.open(img_file)
-    st.image(img, caption="入力画像", use_column_width=True)
+if st.session_state.hand:
+    win_tile = st.selectbox("和了牌", [t for t, _ in st.session_state.hand])
 
-    detected = detect_tiles(img)
+if st.button("計算"):
+    try:
+        melds = build_melds()
 
-    if len(detected) == 0:
-        st.warning("牌が認識できませんでした。手動入力してください。")
+        expected = 14 - len(melds)*3
+        if len(st.session_state.hand) != expected:
+            st.error(f"手牌は{expected}枚必要")
+            st.stop()
 
-    tiles_str = st.text_input(
-        "牌列（修正可）",
-        "".join(detected) if detected else "123m123p123s東東東白白"
-    )
+        tiles136 = convert_tiles([t for t, _ in st.session_state.hand])
+        win_tile136 = convert_tiles([win_tile])[0]
 
-    tile_list = parse_tiles_str(tiles_str)
-    melds = parse_melds(melds_input)
+        calc = HandCalculator()
 
-    # 和了牌
-    win_tile_input = st.selectbox("和了牌", tile_list) if tile_list else None
-
-    if st.button("点数計算"):
-
-        try:
-            expected_tiles = 14 - (len(melds) * 3)
-
-            if len(tile_list) != expected_tiles:
-                st.error(f"手牌は {expected_tiles} 枚にしてください")
-                st.stop()
-
-            tiles136 = convert_tiles(tile_list)
-            win_tile = convert_tiles([win_tile_input])[0]
-
-            calculator = HandCalculator()
-
-            config = HandConfig(
+        result = calc.estimate_hand_value(
+            tiles=tiles136,
+            win_tile=win_tile136,
+            melds=melds,
+            config=HandConfig(
                 is_riichi=riichi,
                 is_ippatsu=ippatsu,
                 is_tsumo=tsumo,
                 player_wind=wind_to_int(self_wind),
                 round_wind=wind_to_int(field_wind)
             )
+        )
 
-            result = calculator.estimate_hand_value(
-                tiles=tiles136,
-                win_tile=win_tile,
-                melds=melds,
-                config=config
-            )
+        if result.error:
+            st.error(result.error)
+        else:
+            red = sum(1 for _, r in st.session_state.hand if r)
+            dora = count_dora()
 
-            if result.error:
-                st.error(result.error)
-            else:
-                han = result.han + dora + red_dora
-                fu = result.fu
+            han = result.han + red + dora
+            fu = result.fu
 
-                if han >= 13:
-                    han = 12
+            if han >= 13:
+                han = 12
 
-                base = fu * (2 ** (han + 2))
-                if base >= 1920:
-                    base = 2000
+            base = fu * (2 ** (han + 2))
+            if base >= 1920:
+                base = 2000
 
-                score = base * (4 if not tsumo else 2)
-                score += honba * 300
+            score = base * (4 if not tsumo else 2)
+            score += honba * 300
 
-                st.subheader("結果")
-                st.write(f"点数: {int(score)}")
-                st.write(f"翻: {han}")
-                st.write(f"符: {fu}")
+            st.write("## 結果")
+            st.write("点数:", int(score))
+            st.write("翻:", han)
+            st.write("符:", fu)
 
-                st.write("役:")
-                for y in result.yaku:
-                    st.write("-", y.name)
+            st.write("役:")
+            for y in result.yaku:
+                st.write("-", y.name)
 
-        except Exception as e:
-            st.error(str(e))
+    except Exception as e:
+        st.error(str(e))
