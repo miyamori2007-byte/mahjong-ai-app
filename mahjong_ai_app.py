@@ -201,26 +201,53 @@ if st.button("計算"):
             st.write("## 結果")
 
             # ===== 点数（完全版）=====
-            cost = result.cost
+cost = result.cost
 
-            if tsumo:
-                if cost['additional']:
-                    st.write(f"ツモ: {cost['main']} / {cost['additional']}")
-                else:
-                    st.write(f"ツモ: {cost['main']}")
-            else:
-                st.write(f"ロン: {cost['main']}")
+st.write("## 結果")
 
-            # 本場加算
-            if honba > 0:
-                st.write(f"本場込み: {cost['main'] + honba*300}")
+# 親判定
+is_dealer = (self_wind == "東")
 
-            st.write("翻:", total_han)
-            st.write("符:", result.fu)
+# =========================
+# ロン
+# =========================
+if not tsumo:
+    if is_dealer:
+        st.write(f"ロン（親）: {cost['main']}")
+        total = cost['main'] + honba * 300
+    else:
+        st.write(f"ロン（子）: {cost['main']}")
+        total = cost['main'] + honba * 300
 
-            st.write("役:")
-            for y in result.yaku:
-                st.write("-", y.name)
+    if honba > 0:
+        st.write(f"本場込み: {total}")
 
-    except Exception as e:
-        st.error(str(e))
+# =========================
+# ツモ
+# =========================
+else:
+    # 子ツモ（支払いが分かれる）
+    if cost['additional']:
+        st.write(f"ツモ（子）: {cost['main']} / {cost['additional']}")
+
+        # 合計得点（受け取り）
+        total = cost['main'] + cost['additional'] * 2 + honba * 300
+
+    # 親ツモ（オール）
+    else:
+        st.write(f"ツモ（親）: {cost['main']}オール")
+
+        total = cost['main'] * 3 + honba * 300
+
+    if honba > 0:
+        st.write(f"本場込み総取り: {total}")
+
+# =========================
+# 情報表示
+# =========================
+st.write("翻:", total_han)
+st.write("符:", result.fu)
+
+st.write("役:")
+for y in result.yaku:
+    st.write("-", y.name)
