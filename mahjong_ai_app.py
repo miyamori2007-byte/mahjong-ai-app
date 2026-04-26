@@ -5,7 +5,7 @@ from mahjong.hand_calculating.hand_config import HandConfig
 from mahjong.meld import Meld
 
 st.set_page_config(layout="wide")
-st.title("🀄 麻雀AI（完全版・最終UX）")
+st.title("🀄 麻雀AI（完全版・最終）")
 
 # =========================
 # 初期化
@@ -23,7 +23,6 @@ st.sidebar.header("設定")
 riichi = st.sidebar.checkbox("立直")
 ippatsu = st.sidebar.checkbox("一発")
 
-# 🔥 一元管理
 win_type = st.sidebar.radio("和了方法", ["ロン", "ツモ"])
 is_tsumo = (win_type == "ツモ")
 
@@ -204,12 +203,34 @@ if st.button("計算"):
         # ツモ
         # =========================
         else:
-            if cost['additional']:
-                st.write(f"ツモ（子）: {cost['main']} / {cost['additional']}")
-                total = cost['main'] + cost['additional'] * 2 + honba * 300
+            if cost['additional'] > 0:
+                # 子ツモ
+
+                # 点数表表示
+                parent_score = cost['main'] * 2
+                child_score = cost['additional'] * 2
+                st.write(f"ツモ（子）: {parent_score} / {child_score}")
+
+                # 実収支
+                base_total = cost['main'] + cost['additional'] * 2
+                total = base_total + honba * 300
+
+                st.write(f"実際の回収: {base_total}")
+                if honba > 0:
+                    st.write(f"本場込み回収: {total}")
+
             else:
-                st.write(f"ツモ（親）: {cost['main']}オール")
-                total = cost['main'] * 3 + honba * 300
+                # 親ツモ
+
+                score_all = cost['main'] * 2
+                st.write(f"ツモ（親）: {score_all}オール")
+
+                base_total = cost['main'] * 3
+                total = base_total + honba * 300
+
+                st.write(f"実際の回収: {base_total}")
+                if honba > 0:
+                    st.write(f"本場込み回収: {total}")
 
             st.write(f"👉 最終獲得点: {total}")
 
