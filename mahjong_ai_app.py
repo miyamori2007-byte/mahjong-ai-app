@@ -5,7 +5,7 @@ from mahjong.hand_calculating.hand_config import HandConfig
 from mahjong.meld import Meld
 
 st.set_page_config(layout="wide")
-st.title("🀄 麻雀AI（完全版・最終安定）")
+st.title("🀄 麻雀AI（完全版・最終UX）")
 
 # =========================
 # 初期化
@@ -23,7 +23,7 @@ st.sidebar.header("設定")
 riichi = st.sidebar.checkbox("立直")
 ippatsu = st.sidebar.checkbox("一発")
 
-# 🔥 和了方法を一元管理
+# 🔥 一元管理
 win_type = st.sidebar.radio("和了方法", ["ロン", "ツモ"])
 is_tsumo = (win_type == "ツモ")
 
@@ -56,6 +56,7 @@ st.write("### 手牌")
 
 for i, (tile, red) in enumerate(st.session_state.hand):
     col1, col2, col3 = st.columns([2,1,1])
+
     col1.write(f"{tile}🔴" if red else tile)
 
     if tile.startswith("5"):
@@ -71,7 +72,7 @@ if st.button("全削除"):
     st.session_state.hand = []
 
 # =========================
-# 鳴き入力
+# 鳴き
 # =========================
 st.sidebar.subheader("鳴き")
 
@@ -194,9 +195,10 @@ if st.button("計算"):
         # ロン
         # =========================
         if win_type == "ロン":
+            total = cost['main'] + honba * 300
+
             st.write(f"ロン（{'親' if is_dealer else '子'}）: {cost['main']}")
-            if honba > 0:
-                st.write(f"本場込み: {cost['main'] + honba * 300}")
+            st.write(f"👉 最終獲得点: {total}")
 
         # =========================
         # ツモ
@@ -204,13 +206,12 @@ if st.button("計算"):
         else:
             if cost['additional']:
                 st.write(f"ツモ（子）: {cost['main']} / {cost['additional']}")
-                total = cost['main'] + cost['additional'] * 2
+                total = cost['main'] + cost['additional'] * 2 + honba * 300
             else:
                 st.write(f"ツモ（親）: {cost['main']}オール")
-                total = cost['main'] * 3
+                total = cost['main'] * 3 + honba * 300
 
-            if honba > 0:
-                st.write(f"本場込み総取り: {total + honba * 300}")
+            st.write(f"👉 最終獲得点: {total}")
 
         st.write("翻:", total_han)
         st.write("符:", result.fu)
