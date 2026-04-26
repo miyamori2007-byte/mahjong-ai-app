@@ -1,6 +1,5 @@
 import streamlit as st
 import numpy as np
-import cv2
 from PIL import Image
 
 from ultralytics import YOLO
@@ -9,10 +8,10 @@ from mahjong.tile import TilesConverter
 from mahjong.hand_calculating.hand_config import HandConfig
 
 st.set_page_config(layout="wide")
-st.title("🀄 麻雀AI（画像認識 × 点数計算）")
+st.title("🀄 麻雀AI（画像認識 × 点数計算 完全版）")
 
 # =========================
-# YOLOモデル読み込み（安全化）
+# YOLOモデル読み込み
 # =========================
 @st.cache_resource
 def load_model():
@@ -52,14 +51,13 @@ label_map = {
 }
 
 # =========================
-# YOLO検出（安全化）
+# YOLO検出
 # =========================
 def detect_tiles(image):
     if model is None:
         return []
 
     img_np = np.array(image)
-
     results = model(img_np)[0]
 
     tiles = []
@@ -71,13 +69,12 @@ def detect_tiles(image):
         if cls in label_map:
             tiles.append((x, label_map[cls]))
 
-    # 左→右ソート
     tiles.sort(key=lambda x: x[0])
 
     return [t[1] for t in tiles]
 
 # =========================
-# 牌文字列 → リスト（バグ修正）
+# 文字列 → 手牌リスト
 # =========================
 def parse_tiles_str(s):
     tiles = []
@@ -126,7 +123,7 @@ def wind_to_int(w):
     return {"東":0,"南":1,"西":2,"北":3}[w]
 
 # =========================
-# メイン
+# メイン処理
 # =========================
 if img_file:
 
@@ -135,22 +132,34 @@ if img_file:
 
     detected = detect_tiles(img)
 
-    # ===== 修正可能UI（最重要）=====
+    if len(detected) == 0:
+        st.warning("牌が認識できませんでした。手動で入力してください。")
+
+    # 修正UI
     tiles_str = st.text_input(
         "牌列（修正可）",
         "".join(detected) if detected else "123m123p123s東東東白白"
     )
 
+    tile_list = parse_tiles_str(tiles_str)
+
+    # ★ 和了牌選択（最重要修正）
+    if len(tile_list) > 0:
+        win_tile_input = st.selectbox("和了牌", tile_list)
+    else:
+        win_tile_input = None
+
     if st.button("点数計算"):
 
         try:
-            tile_list = parse_tiles_str(tiles_str)
-
-            if len(tile_list) not in [14]:
-                st.warning("牌数は14枚にしてください")
+            if len(tile_list) != 14:
+                st.error("牌数は14枚にしてください")
                 st.stop()
 
             tiles136 = convert_tiles(tile_list)
+
+            # ★ 和了牌を正しく指定
+            win_tile = convert_tiles([win_tile_input])[0]
 
             calculator = HandCalculator()
 
@@ -164,7 +173,7 @@ if img_file:
 
             result = calculator.estimate_hand_value(
                 tiles=tiles136,
-                win_tile=tiles136[-1],
+                win_tile=win_tile,
                 config=config
             )
 
