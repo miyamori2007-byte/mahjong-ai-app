@@ -5,19 +5,19 @@ from mahjong.hand_calculating.hand_config import HandConfig
 from mahjong.meld import Meld
 
 st.set_page_config(layout="wide")
-st.title("🀄 麻雀AI（完全版：UI＋鳴き＋ドラ＋赤ドラ）")
+st.title("🀄 麻雀AI（完全版：点数完全対応）")
 
 # =========================
 # 初期化
 # =========================
 if "hand" not in st.session_state:
-    st.session_state.hand = []  # [(tile, is_red)]
+    st.session_state.hand = []
 
 if "melds" not in st.session_state:
     st.session_state.melds = []
 
 # =========================
-# 基本設定
+# 設定
 # =========================
 st.sidebar.header("設定")
 
@@ -30,7 +30,6 @@ self_wind = st.sidebar.selectbox("自風", ["東","南","西","北"])
 
 honba = st.sidebar.number_input("本場", 0, 20, 0)
 
-# ドラ（簡易）
 tiles_all = [
     *[f"{i}m" for i in range(1,10)],
     *[f"{i}p" for i in range(1,10)],
@@ -52,7 +51,6 @@ for i, tile in enumerate(tiles_all):
     if cols[i % 9].button(tile, key=f"add_{tile}_{i}"):
         st.session_state.hand.append((tile, False))
 
-# 表示＋赤ドラ
 st.write("### 手牌")
 
 for i, (tile, red) in enumerate(st.session_state.hand):
@@ -61,7 +59,7 @@ for i, (tile, red) in enumerate(st.session_state.hand):
     label = f"{tile}🔴" if red else tile
     col1.write(label)
 
-    if tile[0] == "5":
+    if tile.startswith("5"):
         if col2.button("赤", key=f"red_{i}"):
             st.session_state.hand[i] = (tile, not red)
             st.rerun()
@@ -95,7 +93,6 @@ if st.sidebar.button("チー追加"):
         [f"{n}{chi_suit}", f"{n+1}{chi_suit}", f"{n+2}{chi_suit}"]
     )
 
-# 副露表示
 st.sidebar.write("副露:")
 for i, m in enumerate(st.session_state.melds):
     col1, col2 = st.sidebar.columns([3,1])
@@ -139,7 +136,7 @@ def wind_to_int(w):
     return {"東":0,"南":1,"西":2,"北":3}[w]
 
 # =========================
-# ドラ計算
+# ドラ
 # =========================
 def count_dora():
     tiles = [t for t, _ in st.session_state.hand]
@@ -199,23 +196,27 @@ if st.button("計算"):
             red = sum(1 for _, r in st.session_state.hand if r)
             dora = count_dora()
 
-            han = result.han + red + dora
-            fu = result.fu
-
-            if han >= 13:
-                han = 12
-
-            base = fu * (2 ** (han + 2))
-            if base >= 1920:
-                base = 2000
-
-            score = base * (4 if not tsumo else 2)
-            score += honba * 300
+            total_han = result.han + red + dora
 
             st.write("## 結果")
-            st.write("点数:", int(score))
-            st.write("翻:", han)
-            st.write("符:", fu)
+
+            # ===== 点数（完全版）=====
+            cost = result.cost
+
+            if tsumo:
+                if cost['additional']:
+                    st.write(f"ツモ: {cost['main']} / {cost['additional']}")
+                else:
+                    st.write(f"ツモ: {cost['main']}")
+            else:
+                st.write(f"ロン: {cost['main']}")
+
+            # 本場加算
+            if honba > 0:
+                st.write(f"本場込み: {cost['main'] + honba*300}")
+
+            st.write("翻:", total_han)
+            st.write("符:", result.fu)
 
             st.write("役:")
             for y in result.yaku:
